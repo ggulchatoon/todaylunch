@@ -424,7 +424,10 @@ function renderShop(){
     </label>
     <input type="file" id="sFile" accept="image/*" multiple class="hide">
     <div class="field grow"><label for="sPantry">집에 있는 재료 (쉼표나 줄바꿈으로 여러 개)</label>
-      <textarea class="inp scroll" id="sPantry" style="flex:1;min-height:90px" placeholder="예: 계란 10알, 양배추 반 통, 김 1봉">${esc(S.pantry||'')}</textarea>
+      <textarea class="inp scroll" id="sPantry" style="flex:1;min-height:72px" placeholder="예: 계란 10알, 양배추 반 통, 김 1봉">${esc(S.pantry||'')}</textarea>
+    </div>
+    <div class="field grow"><label for="sReq">이번 주 요청</label>
+      <textarea class="inp scroll" id="sReq" style="flex:1;min-height:72px" placeholder="예: 월요일엔 게장 먹고 싶어요, 수요일은 가볍게">${esc((S.requests||{})[draft.weekStart]||'')}</textarea>
     </div>
     <div class="row">
       ${n?'<button class="btn ghost" id="sClear" style="flex:1">다시 고르기</button>':''}
@@ -438,6 +441,7 @@ function renderShop(){
     if(fail) toast(fail===files.length ? '사진을 읽지 못했어요. 사파리에서 열어 다시 골라주세요' : `${fail}장은 읽지 못했어요`);
   };
   $('#sPantry').onchange=e=>{S.pantry=e.target.value;save();};
+  $('#sReq').onchange=e=>{ S.requests=S.requests||{}; const v=e.target.value.trim(); if(v) S.requests[draft.weekStart]=v; else delete S.requests[draft.weekStart]; save(); };
   const c=$('#sClear'); if(c) c.onclick=()=>{draft.images=[];renderShop();};
   $('#sGo').onclick=runShop;
 }
@@ -464,8 +468,10 @@ function shrink(file){
 /* 같은 주에 장보기가 이미 있으면 바꿀지, 추가할지 먼저 묻기 */
 function runShop(){
   if(!SEC.apiKey){ toast('설정에서 Gemini API 키를 넣어주세요'); openSettings(); return; }
-  S.pantry=$('#sPantry').value; save();
+  S.pantry=$('#sPantry').value;
   const ws=draft.weekStart, wi=weekInfo(ws);
+  S.requests=S.requests||{}; const rq=$('#sReq').value.trim(); if(rq) S.requests[ws]=rq; else delete S.requests[ws];
+  save();
   const prev=S.shops.filter(s=>s.weekStart===ws);
   if(!prev.length){ doShop('add'); return; }
   openSheet(`<h2>${wi.label}에 이미 장보기가 있어요</h2>
@@ -579,6 +585,8 @@ ${dates.map(d=>`${d}(${wdOf(d)}): ${getDay(d).count}인`).join('\n')}
 ${items.map(i=>`- ${i.name} / ${i.weight||'중량 미상'} / ${i.storage||''}${i.shelf?' / 소비기한 '+i.shelf:''}${i.note?' / '+i.note:''}`).join('\n')}
 [집에 있는 재료]
 ${S.pantry||'없음'}
+[이번 주 요청] (가능한 한 꼭 반영. 요일이 정해져 있으면 그 요일에. 재료가 부족하면 가진 재료로 가장 비슷하게)
+${(S.requests||{})[ws]||'없음'}
 [규칙]
 - 재료를 인원에 맞게 g 단위로 나눠 남김없이 배분. 1인 날은 양을 줄여.
 - 신선도 빠른 것부터. 냉동품 해동 일정 등 미리 할 일은 prep에 날짜별로(식단 주 시작 전날 포함 가능).
