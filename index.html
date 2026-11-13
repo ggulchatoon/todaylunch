@@ -368,8 +368,13 @@ function renderWeek(){
       <div class="dw"><b>${wdOf(d)}</b><span>${md(d)}</span></div>
       <div class="dm"><div class="dt">${dt}</div>${dd}</div>
       ${x.count===1?'<span class="one">1인</span>':''}
-    </div>`;}).join('')}</div>`;
+    </div>`;}).join('')}</div>
+    ${S.shops.some(x=>x.weekStart===ws)?'<button class="btn ghost sm" id="wReplan">이 주 식단 다시 짜기</button>':''}`;
   document.querySelectorAll('.day').forEach(el=>el.onclick=()=>openDay(el.dataset.d));
+  const rp=$('#wReplan');
+  if(rp){ let armed=false; rp.onclick=()=>{
+    if(!armed){ armed=true; rp.textContent='직접 고친 메뉴도 바뀌어요. 한 번 더 누르면 다시 짜요'; return; }
+    replanWeek(ws); }; }
 }
 
 /* ================= 시트 ================= */
