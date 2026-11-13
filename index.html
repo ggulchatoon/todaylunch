@@ -233,7 +233,7 @@ document.addEventListener('touchmove', e => {
 /* ================= storage ================= */
 const KEY = 'lunchPlanner.v2', SKEY = 'lunchPlanner.secrets';
 let SEC; try{ SEC = JSON.parse(localStorage.getItem(SKEY)) || {}; }catch(e){ SEC={}; }
-SEC.model = SEC.model || 'gemini-2.5-flash';
+SEC.model = SEC.model || 'gemini-3.5-flash';
 const saveSec = () => { try{ localStorage.setItem(SKEY, JSON.stringify(SEC)); }catch(e){} };
 
 function seed(){
@@ -479,7 +479,7 @@ async function gemini(parts,{search=false,json=false}={}){
   const body={contents:[{role:'user',parts}],generationConfig:{temperature:0.4}};
   if(search) body.tools=[{google_search:{}}];
   if(json&&!search) body.generationConfig.responseMimeType='application/json';
-  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(SEC.model||'gemini-2.5-flash')}:generateContent`,{
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(SEC.model||'gemini-3.5-flash')}:generateContent`,{
     method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':SEC.apiKey},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(j?.error?.message||('HTTP '+r.status));
@@ -638,7 +638,7 @@ function openSettings(){
     st.goalPerMeal=+$('#kGoal').value.replace(/[^0-9]/g,'')||0;
     st.defaultCounts={}; document.querySelectorAll('#kDef select').forEach(s=>st.defaultCounts[s.dataset.w]=+s.value);
     st.profile=$('#kProf').value; st.rules=$('#kRules').value;
-    SEC.apiKey=$('#kKey').value.trim(); SEC.model=$('#kModel').value.trim()||'gemini-2.5-flash';
+    SEC.apiKey=$('#kKey').value.trim(); SEC.model=$('#kModel').value.trim()||'gemini-3.5-flash';
     const tok=$('#kGh').value.trim(), gid=$('#kGist').value.trim();
     const syncChanged = tok!==(SEC.ghToken||'') || gid!==(SEC.gistId||'');
     SEC.ghToken=tok; SEC.gistId=gid; saveSec();
