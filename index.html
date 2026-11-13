@@ -42,12 +42,9 @@
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 /* 화면 고정: iOS 고무줄 스크롤(꿀렁임) 방지 */
-/* position:fixed는 아이폰 홈 화면 앱에서 입력칸 포커스를 방해해서 쓰지 않음. 출렁임은 overscroll-behavior와 touchmove 처리로 막음 */
-html,body{width:100%;height:100%;overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
-body{background:var(--bg);color:var(--ink);font-family:Pretendard,-apple-system,"Apple SD Gothic Neo",sans-serif;font-size:var(--fs-md);line-height:var(--lh-ui);letter-spacing:-.01em}
-/* 글자 선택 금지는 누르는 요소에만. body 전체에 걸면 아이폰 홈 화면 앱에서 입력칸에 키보드가 안 뜸 */
-button,nav,header,.day,.bar,.drop,.hero,.nomeal,.preview,.goal,.hist,.thumbs{-webkit-user-select:none;user-select:none}
-input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+html,body{position:fixed;inset:0;width:100%;height:100%;overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
+body{background:var(--bg);color:var(--ink);font-family:Pretendard,-apple-system,"Apple SD Gothic Neo",sans-serif;font-size:var(--fs-md);line-height:var(--lh-ui);letter-spacing:-.01em;-webkit-user-select:none;user-select:none}
+input,textarea{-webkit-user-select:text;user-select:text}
 button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 input,textarea,select{font:inherit;color:inherit;font-size:var(--fs-md)} /* 16px 미만이면 iOS가 확대함 */
 #app{position:absolute;inset:0;display:flex;flex-direction:column;max-width:520px;margin:0 auto;background:var(--bg)}
@@ -123,13 +120,6 @@ nav button.on svg{background:var(--accent)}
 .thumbs{display:flex;gap:var(--s1);overflow-x:auto;max-width:100%;padding-bottom:2px}
 .thumbs img{height:96px;border-radius:var(--r-sm);border:var(--border);flex:0 0 auto}
 .thumbs .addt{flex:0 0 64px;height:96px;border-radius:var(--r-sm);background:var(--fill);display:grid;place-items:center;font-size:var(--fs-lg);color:var(--sub)}
-.notes{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--card);border:var(--border);border-radius:var(--r-lg);overflow:hidden}
-.note{flex:1;min-height:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:var(--s3);text-align:left;border-top:var(--border)}
-.note:first-child{border-top:0}
-.note:active{background:var(--fill)}
-.note .nl{font-size:var(--fs-cap);color:var(--sub);font-weight:600}
-.note .nv{font-size:var(--fs-md);line-height:var(--lh-read);overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;white-space:pre-line}
-.note .nv.ph{color:var(--faint)}
 .field{display:flex;flex-direction:column;gap:6px}
 .field.grow{flex:1;min-height:0}
 .field label{font-size:var(--fs-cap);color:var(--sub);font-weight:600}
@@ -236,16 +226,11 @@ function loading(on, text){ $('#loading').classList.toggle('on',on); if(text) $(
 
 /* iOS 꿀렁임 방지: 스크롤 영역 밖의 터치 이동은 막기 */
 document.addEventListener('touchmove', e => {
-  // 입력칸 위에서는 막지 않음 (막으면 아이폰에서 입력칸이 안 눌리거나 글자 선택이 안 됨)
-  if(e.target.closest('input, textarea, select, [contenteditable]')) return;
-  const sc = e.target.closest('.scroll');
+  const sc = e.target.closest('.scroll, textarea');
   if(!sc || sc.scrollHeight <= sc.clientHeight) e.preventDefault();
 }, {passive:false});
-/* 글을 쓰는 중에는 동기화로 화면을 다시 그리지 않음 (쓰던 글이 지워지거나 키보드가 닫히는 문제 방지) */
-const typing = () => !!document.activeElement?.closest?.('input, textarea, select');
-document.addEventListener('focusout', () => setTimeout(() => { if(window.__renderLater && !typing()){ window.__renderLater=false; render(); } }, 50));
 
-const APP_VER='11.14-9';
+const APP_VER='11.14-10';
 /* ================= storage ================= */
 const KEY = 'lunchPlanner.v2', SKEY = 'lunchPlanner.secrets';
 let SEC; try{ SEC = JSON.parse(localStorage.getItem(SKEY)) || {}; }catch(e){ SEC={}; }
@@ -300,7 +285,7 @@ async function pull(silent){
       if(f.truncated && f.raw_url){ txt = await (await fetch(f.raw_url)).text(); }
       const remote = JSON.parse(txt);
       if((remote.updatedAt||0) > (S.updatedAt||0)){
-        S = remote; localStorage.setItem(KEY, JSON.stringify(S)); if(typing()) window.__renderLater=true; else render();
+        S = remote; localStorage.setItem(KEY, JSON.stringify(S)); render();
         if(!silent) toast('최신 내용으로 업데이트했어요');
       } else if((remote.updatedAt||0) < (S.updatedAt||0)) { await push(); }
     } else { await push(); }
@@ -422,17 +407,6 @@ function openDay(date){
 }
 
 /* ================= 장보기 ================= */
-/* 글 입력은 아래 시트에서 (홈 화면 앱에서 화면 안 입력칸이 키보드를 못 띄우는 문제 우회) */
-function editText(title, hint, ph, value, onSave){
-  openSheet(`<h2>${esc(title)}</h2>
-    <div class="body">
-      <div class="small muted">${esc(hint)}</div>
-      <textarea class="inp" id="tEdit" rows="6" placeholder="${esc(ph)}">${esc(value)}</textarea>
-    </div>
-    <div class="row"><button class="btn ghost" id="tCancel" style="flex:1">닫기</button><button class="btn" id="tSave" style="flex:2">저장</button></div>`);
-  $('#tCancel').onclick=closeSheet;
-  $('#tSave').onclick=()=>{ onSave($('#tEdit').value.trim()); save(); closeSheet(); renderShop(); };
-}
 let draft={images:[], weekStart:null};
 function defaultTargetWeek(){ const t=todayStr(), w=parse(t).getDay(); return w>=4 ? addDays(weekStart(t),7) : weekStart(t); } // 목~토 등록 → 다음 주
 function renderShop(){
@@ -450,15 +424,11 @@ function renderShop(){
       <div class="dsub">컬리 장바구니 화면을 여러 장 골라도 돼요</div>`}
     </label>
     <input type="file" id="sFile" accept="image/*" multiple class="hide">
-    <div class="notes">
-      <button type="button" class="note" id="sPantryBtn">
-        <span class="nl">집에 있는 재료</span>
-        <span class="nv ${S.pantry?'':'ph'}">${esc(S.pantry||'예: 계란 10알, 양배추 반 통, 김 1봉')}</span>
-      </button>
-      <button type="button" class="note" id="sReqBtn">
-        <span class="nl">이번 주 요청</span>
-        <span class="nv ${(S.requests||{})[draft.weekStart]?'':'ph'}">${esc((S.requests||{})[draft.weekStart]||'예: 월요일엔 게장 먹고 싶어요, 수요일은 가볍게')}</span>
-      </button>
+    <div class="field grow"><label for="sPantry">집에 있는 재료 (쉼표나 줄바꿈으로 여러 개)</label>
+      <textarea class="inp scroll" id="sPantry" style="flex:1;min-height:72px" placeholder="예: 계란 10알, 양배추 반 통, 김 1봉">${esc(S.pantry||'')}</textarea>
+    </div>
+    <div class="field grow"><label for="sReq">이번 주 요청</label>
+      <textarea class="inp scroll" id="sReq" style="flex:1;min-height:72px" placeholder="예: 월요일엔 게장 먹고 싶어요, 수요일은 가볍게">${esc((S.requests||{})[draft.weekStart]||'')}</textarea>
     </div>
     <div class="row">
       ${n?'<button class="btn ghost" id="sClear" style="flex:1">다시 고르기</button>':''}
@@ -471,8 +441,8 @@ function renderShop(){
     loading(false); renderShop();
     if(fail) toast(fail===files.length ? '사진을 읽지 못했어요. 사파리에서 열어 다시 골라주세요' : `${fail}장은 읽지 못했어요`);
   };
-  $('#sPantryBtn').onclick=()=>editText('집에 있는 재료','쉼표나 줄바꿈으로 여러 개','예: 계란 10알, 양배추 반 통, 김 1봉',S.pantry||'',v=>{S.pantry=v;});
-  $('#sReqBtn').onclick=()=>editText(`${weekInfo(draft.weekStart).label} 요청`,'AI가 식단을 짤 때 꼭 반영해요','예: 월요일엔 게장 먹고 싶어요, 수요일은 가볍게',(S.requests||{})[draft.weekStart]||'',v=>{S.requests=S.requests||{}; if(v) S.requests[draft.weekStart]=v; else delete S.requests[draft.weekStart];});
+  $('#sPantry').onchange=e=>{S.pantry=e.target.value;save();};
+  $('#sReq').onchange=e=>{ S.requests=S.requests||{}; const v=e.target.value.trim(); if(v) S.requests[draft.weekStart]=v; else delete S.requests[draft.weekStart]; save(); };
   const c=$('#sClear'); if(c) c.onclick=()=>{draft.images=[];renderShop();};
   $('#sGo').onclick=runShop;
 }
@@ -499,7 +469,9 @@ function shrink(file){
 /* 같은 주에 장보기가 이미 있으면 바꿀지, 추가할지 먼저 묻기 */
 function runShop(){
   if(!SEC.apiKey){ toast('설정에서 Gemini API 키를 넣어주세요'); openSettings(); return; }
+  S.pantry=$('#sPantry').value;
   const ws=draft.weekStart, wi=weekInfo(ws);
+  S.requests=S.requests||{}; const rq=$('#sReq').value.trim(); if(rq) S.requests[ws]=rq; else delete S.requests[ws];
   save();
   const prev=S.shops.filter(s=>s.weekStart===ws);
   if(!prev.length){ doShop('add'); return; }
