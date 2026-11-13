@@ -470,10 +470,18 @@ async function runShop(){
     applyPlan(ws,out);
     draft={images:[],weekStart:null}; weekCursor=ws; go('week');
     toast(`${weekInfo(ws).label} 식단 등록 완료 · 비용 ${won(weekCost(ws))}`);
-  }catch(e){ toast('실패: '+e.message); }
+  }catch(e){ showError('식단을 짜지 못했어요', e.message); }
   finally{ loading(false); }
 }
 
+/* 에러는 사라지지 않는 창으로 보여주고 복사할 수 있게 */
+function showError(title, msg){
+  openSheet(`<h2>${esc(title)}</h2>
+    <div class="body scroll" style="overflow-y:auto"><p class="small muted" style="line-height:var(--lh-read);word-break:break-all;-webkit-user-select:text;user-select:text">${esc(msg)}</p></div>
+    <div class="row"><button class="btn ghost" id="eCopy" style="flex:1">복사</button><button class="btn" id="eClose" style="flex:1">닫기</button></div>`);
+  $('#eClose').onclick=closeSheet;
+  $('#eCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText(msg); toast('복사했어요'); }catch(e){ toast('글자를 길게 눌러 복사해주세요'); } };
+}
 /* ================= Gemini ================= */
 async function gemini(parts,{search=false,json=false}={}){
   const body={contents:[{role:'user',parts}],generationConfig:{temperature:0.4}};
@@ -528,7 +536,7 @@ async function replanWeek(ws){
   if(!SEC.apiKey){ toast('설정에서 Gemini API 키를 넣어주세요'); openSettings(); return; }
   loading(true,'인원에 맞춰 다시 짜는 중…');
   try{ applyPlan(ws, extractJSON(await gemini([{text:planPrompt(ws,items)}],{json:true}))); render(); toast('다시 짰어요'); }
-  catch(e){ toast('실패: '+e.message); } finally{ loading(false); }
+  catch(e){ showError('다시 짜지 못했어요', e.message); } finally{ loading(false); }
 }
 function applyPlan(ws,out){
   const by={}; (out.days||[]).forEach(d=>by[d.date]=d);
