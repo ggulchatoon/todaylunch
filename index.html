@@ -461,13 +461,33 @@ function shrink(file){
     fr.readAsDataURL(file);
   });
 }
-async function runShop(){
+/* 같은 주에 장보기가 이미 있으면 바꿀지, 추가할지 먼저 묻기 */
+function runShop(){
   if(!SEC.apiKey){ toast('설정에서 Gemini API 키를 넣어주세요'); openSettings(); return; }
   S.pantry=$('#sPantry').value; save();
+  const ws=draft.weekStart, wi=weekInfo(ws);
+  const prev=S.shops.filter(s=>s.weekStart===ws);
+  if(!prev.length){ doShop('add'); return; }
+  openSheet(`<h2>${wi.label}에 이미 장보기가 있어요</h2>
+    <div class="body">
+      <p class="small muted" style="line-height:var(--lh-read)">기존 장보기 ${prev.length}건 · ${won(weekCost(ws))}</p>
+      <button class="btn" id="mReplace">기존 장보기 바꾸기</button>
+      <p class="small muted" style="line-height:var(--lh-read);margin-top:-6px">기존 장보기와 이 주 식단·할 일을 지우고 새 캡처로 다시 짜요.</p>
+      <button class="btn ghost" id="mAdd">추가로 산 것이에요</button>
+      <p class="small muted" style="line-height:var(--lh-read);margin-top:-6px">기존 장보기에 더해서 이 주 전체 식단을 다시 짜요.</p>
+    </div>
+    <button class="btn ghost sm" id="mCancel">취소</button>`);
+  $('#mReplace').onclick=()=>{ closeSheet(); doShop('replace'); };
+  $('#mAdd').onclick=()=>{ closeSheet(); doShop('add'); };
+  $('#mCancel').onclick=closeSheet;
+}
+async function doShop(mode){
   const ws=draft.weekStart;
   try{
     loading(true,'캡처 읽고 컬리에서 찾는 중… (1/2)');
     const items = await parseCart(draft.images);
+    // 캡처를 다 읽은 뒤에 기존 것을 지움 (중간에 실패해도 기존 기록은 남게)
+    if(mode==='replace'){ S.shops=S.shops.filter(s=>s.weekStart!==ws); clearWeekPlan(ws); }
     S.shops.push({id:'s'+Date.now(),date:todayStr(),weekStart:ws,items}); save();
     loading(true,'요일별 식단 짜는 중… (2/2)');
     const all=S.shops.filter(s=>s.weekStart===ws).flatMap(s=>s.items);
@@ -477,6 +497,12 @@ async function runShop(){
     toast(`${weekInfo(ws).label} 식단 등록 완료 · 비용 ${won(weekCost(ws))}`);
   }catch(e){ showError('식단을 짜지 못했어요', e.message); }
   finally{ loading(false); }
+}
+/* 한 주의 메뉴와 할 일 비우기 (요일별 인원은 유지) */
+function clearWeekPlan(ws){
+  for(let i=0;i<7;i++){ const d=addDays(ws,i); S.days[d]={count:getDay(d).count,title:'',items:[]}; }
+  for(let i=-2;i<7;i++) delete S.prep[addDays(ws,i)];
+  save();
 }
 
 /* 에러는 사라지지 않는 창으로 보여주고 복사할 수 있게 */
@@ -535,7 +561,8 @@ JSON만 출력:
     raw=await gemini([...imgParts,{text:prompt+'\n(지금은 검색을 쓸 수 없어. 상품명으로 추정하고 값 앞에 "약"을 붙여.)'}],{json:true});
   }
   const out=await readJSON(raw);
-  const items=(out.items||[]).map(i=>({name:i.name||'',price:+i.price||0,qty:+i.qty||1,weight:i.weight||'',storage:i.storage||'',shelf:i.shelf||'',note:i.note||''})).filter(i=>i.name);
+  const toNum=v=>+String(v??'').replace(/[^\d.]/g,'')||0; // "6,375원", "약 280"도 숫자로
+  const items=(out.items||[]).map(i=>({name:i.name||'',price:toNum(i.price),qty:toNum(i.qty)||1,weight:i.weight||'',storage:i.storage||'',shelf:i.shelf||'',note:i.note||''})).filter(i=>i.name);
   if(!items.length) throw new Error('상품을 찾지 못했어요');
   return items;
 }
@@ -583,7 +610,7 @@ function applyPlan(ws,out){
   const by={}; (out.days||[]).forEach(d=>{ const k=normDate(d.date,ws); if(k) by[k]=d; });
   for(let i=0;i<7;i++){
     const d=addDays(ws,i), cnt=getDay(d).count, p=by[d];
-    S.days[d] = (cnt&&p) ? {count:cnt,title:p.title||'',items:p.items||[],portion:p.portion||'',minutes:p.minutes||''} : {count:cnt,title:'',items:[]};
+    S.days[d] = (cnt&&p) ? {count:cnt,title:p.title||'',items:p.items||[],portion:p.portion||'',minutes:parseInt(p.minutes)||''} : {count:cnt,title:'',items:[]};
   }
   for(let i=-2;i<7;i++) delete S.prep[addDays(ws,i)];
   (out.prep||[]).forEach(p=>{ const k=normDate(p.date,ws); const txt=p.text||p.todo||''; if(k&&txt) (S.prep[k]=S.prep[k]||[]).push(txt); });
@@ -651,7 +678,10 @@ function openWeekCost(ws){
   $('#cClose').onclick=()=>{closeSheet();render();};
   document.querySelectorAll('[data-delshop]').forEach(b=>{ let armed=false; b.onclick=()=>{
     if(!armed){armed=true;b.textContent='한 번 더 누르면 삭제';return;}
-    S.shops=S.shops.filter(s=>s.id!==b.dataset.delshop); save(); closeSheet(); render(); toast('삭제했어요'); };});
+    S.shops=S.shops.filter(s=>s.id!==b.dataset.delshop); save(); closeSheet();
+    if(!S.shops.some(s=>s.weekStart===ws)){ clearWeekPlan(ws); toast('장보기와 이 주 식단·할 일을 지웠어요'); }
+    else toast('삭제했어요. 남은 장보기로 다시 짜려면 주간 탭에서 다시 짜기를 눌러주세요');
+    render(); };});
 }
 
 /* ================= 설정 ================= */
