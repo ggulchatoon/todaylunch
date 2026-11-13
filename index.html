@@ -231,7 +231,7 @@ document.addEventListener('touchmove', e => {
   if(!sc || sc.scrollHeight <= sc.clientHeight) e.preventDefault();
 }, {passive:false});
 
-const APP_VER='11.14-11';
+const APP_VER='11.14-12';
 /* ================= storage ================= */
 const KEY = 'lunchPlanner.v2', SKEY = 'lunchPlanner.secrets';
 let SEC; try{ SEC = JSON.parse(localStorage.getItem(SKEY)) || {}; }catch(e){ SEC={}; }
@@ -417,6 +417,12 @@ function renderShop(){
     ()=>{draft.weekStart=addDays(draft.weekStart,-7);renderShop();},
     ()=>{draft.weekStart=addDays(draft.weekStart,7);renderShop();});
   $('#view').innerHTML = `
+    <div class="field grow"><label for="sPantry">집에 있는 재료 (쉼표나 줄바꿈으로 여러 개)</label>
+      <textarea class="inp scroll" id="sPantry" style="flex:1;min-height:72px" placeholder="예: 계란 10알, 양배추 반 통, 김 1봉">${esc(S.pantry||'')}</textarea>
+    </div>
+    <div class="field grow"><label for="sReq">이번 주 요청</label>
+      <textarea class="inp scroll" id="sReq" style="flex:1;min-height:72px" placeholder="예: 월요일엔 게장 먹고 싶어요, 수요일은 가볍게">${esc((S.requests||{})[draft.weekStart]||'')}</textarea>
+    </div>
     <label class="drop ${n?'filled':''}" for="sFile">${n?`
       <div class="thumbs">${draft.images.map(i=>`<img src="${i.url}" alt="">`).join('')}<span class="addt" aria-hidden="true">+</span></div>
       <div class="dsub"><b>${n}장 골랐어요</b> · 눌러서 더 고르기</div>`:`
@@ -425,12 +431,6 @@ function renderShop(){
       <div class="dsub">컬리 장바구니 화면을 여러 장 골라도 돼요</div>`}
     </label>
     <input type="file" id="sFile" accept="image/*" multiple class="hide">
-    <div class="field grow"><label for="sPantry">집에 있는 재료 (쉼표나 줄바꿈으로 여러 개)</label>
-      <textarea class="inp scroll" id="sPantry" style="flex:1;min-height:72px" placeholder="예: 계란 10알, 양배추 반 통, 김 1봉">${esc(S.pantry||'')}</textarea>
-    </div>
-    <div class="field grow"><label for="sReq">이번 주 요청</label>
-      <textarea class="inp scroll" id="sReq" style="flex:1;min-height:72px" placeholder="예: 월요일엔 게장 먹고 싶어요, 수요일은 가볍게">${esc((S.requests||{})[draft.weekStart]||'')}</textarea>
-    </div>
     <div class="row">
       ${n?'<button class="btn ghost" id="sClear" style="flex:1">다시 고르기</button>':''}
       <button class="btn" id="sGo" style="flex:2" ${n?'':'disabled'}>식단 짜기</button>
