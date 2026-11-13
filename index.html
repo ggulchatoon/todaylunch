@@ -551,8 +551,9 @@ ${S.pantry||'없음'}
 - 재료를 인원에 맞게 g 단위로 나눠 남김없이 배분. 1인 날은 양을 줄여.
 - 신선도 빠른 것부터. 냉동품 해동 일정 등 미리 할 일은 prep에 날짜별로(식단 주 시작 전날 포함 가능).
 - 조리 20분 이내. items는 "재료명 양" 짧게, 3~5개.
+- date 칸은 반드시 YYYY-MM-DD 형식. prep은 해동·손질·소비기한 등 미리 할 일이 있으면 꼭 넣어.
 JSON만 출력:
-{"days":[{"date":"YYYY-MM-DD","title":"짧은 메뉴명","items":["…"],"portion":"[먹는 양] 기준 사람별 메인 양 (예: A 270g / B 195g, 없으면 빈 문자열)","minutes":정수}],"prep":[{"date":"YYYY-MM-DD","text":"'오늘은 게장을 냉장실로 옮겨 해동해주세요.'처럼 그날 할 일을 부드러운 한 문장으로. 날짜는 11.20처럼 점으로"}]}`;
+{"days":[{"date":"YYYY-MM-DD","title":"짧은 메뉴명","items":["…"],"portion":"[먹는 양] 기준 사람별 메인 양 (예: A 270g / B 195g, 없으면 빈 문자열)","minutes":정수}],"prep":[{"date":"YYYY-MM-DD","text":"'오늘은 게장을 냉장실로 옮겨 해동해주세요.'처럼 그날 할 일을 부드러운 한 문장으로. 문장 안에서 날짜를 말할 때만 11.20처럼 점으로"}]}`;
 }
 async function replanWeek(ws){
   const items=S.shops.filter(s=>s.weekStart===ws).flatMap(s=>s.items);
@@ -562,14 +563,25 @@ async function replanWeek(ws){
   try{ applyPlan(ws, await readJSON(await gemini([{text:planPrompt(ws,items)}],{json:true}))); render(); toast('다시 짰어요'); }
   catch(e){ showError('다시 짜지 못했어요', e.message); } finally{ loading(false); }
 }
+/* AI가 보낸 날짜를 YYYY-MM-DD로 맞추기 (11.16, 11/16, 11월 16일도 허용) */
+function normDate(v, ws){
+  const t=String(v||'').trim();
+  let m=t.match(/^(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
+  if(m) return `${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
+  m=t.match(/(\d{1,2})\s*(?:[.\/-]|월)\s*(\d{1,2})/);
+  if(!m) return '';
+  const base=parse(ws); let y=base.getFullYear();
+  if(+m[1]-(base.getMonth()+1) < -6) y++; else if(+m[1]-(base.getMonth()+1) > 6) y--;
+  return `${y}-${pad(+m[1])}-${pad(+m[2])}`;
+}
 function applyPlan(ws,out){
-  const by={}; (out.days||[]).forEach(d=>by[d.date]=d);
+  const by={}; (out.days||[]).forEach(d=>{ const k=normDate(d.date,ws); if(k) by[k]=d; });
   for(let i=0;i<7;i++){
     const d=addDays(ws,i), cnt=getDay(d).count, p=by[d];
     S.days[d] = (cnt&&p) ? {count:cnt,title:p.title||'',items:p.items||[],portion:p.portion||'',minutes:p.minutes||''} : {count:cnt,title:'',items:[]};
   }
   for(let i=-2;i<7;i++) delete S.prep[addDays(ws,i)];
-  (out.prep||[]).forEach(p=>{ if(p.date&&p.text) (S.prep[p.date]=S.prep[p.date]||[]).push(p.text); });
+  (out.prep||[]).forEach(p=>{ const k=normDate(p.date,ws); const txt=p.text||p.todo||''; if(k&&txt) (S.prep[k]=S.prep[k]||[]).push(txt); });
   save();
 }
 
