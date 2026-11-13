@@ -231,7 +231,7 @@ document.addEventListener('touchmove', e => {
   if(!sc || sc.scrollHeight <= sc.clientHeight) e.preventDefault();
 }, {passive:false});
 
-const APP_VER='11.14-12';
+const APP_VER='11.14-13';
 /* ================= storage ================= */
 const KEY = 'lunchPlanner.v2', SKEY = 'lunchPlanner.secrets';
 let SEC; try{ SEC = JSON.parse(localStorage.getItem(SKEY)) || {}; }catch(e){ SEC={}; }
@@ -606,25 +606,50 @@ async function replanWeek(ws){
   catch(e){ showError('다시 짜지 못했어요', e.message); } finally{ loading(false); }
 }
 /* AI가 보낸 날짜를 YYYY-MM-DD로 맞추기 (11.16, 11/16, 11월 16일도 허용) */
+/* AI가 보낸 날짜를 YYYY-MM-DD로 맞추기 (11.16, 11/16, 11월 16일, 월요일도 허용) */
 function normDate(v, ws){
   const t=String(v||'').trim();
   let m=t.match(/^(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
   if(m) return `${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
   m=t.match(/(\d{1,2})\s*(?:[.\/-]|월)\s*(\d{1,2})/);
-  if(!m) return '';
-  const base=parse(ws); let y=base.getFullYear();
-  if(+m[1]-(base.getMonth()+1) < -6) y++; else if(+m[1]-(base.getMonth()+1) > 6) y--;
-  return `${y}-${pad(+m[1])}-${pad(+m[2])}`;
+  if(m){
+    const base=parse(ws); let y=base.getFullYear();
+    if(+m[1]-(base.getMonth()+1) < -6) y++; else if(+m[1]-(base.getMonth()+1) > 6) y--;
+    return `${y}-${pad(+m[1])}-${pad(+m[2])}`;
+  }
+  m=t.match(/^([일월화수목금토])(?:요일)?$/);            // "월" / "월요일"
+  if(m) return addDays(ws, WD.indexOf(m[1]));           // 주는 일요일 시작
+  return '';
+}
+/* 메뉴 구성: 목록·문장·다른 이름 모두 목록으로 */
+function toItems(p){
+  let v = p.items ?? p.menu ?? p.menus ?? p.dishes ?? p.components ?? p['구성'] ?? [];
+  if(typeof v==='string') v=v.split(/\s*(?:,|·|\n|\/)\s*/);
+  if(!Array.isArray(v)) v=[];
+  return v.map(x=>typeof x==='string'?x:(x?.name? `${x.name}${x.amount?' '+x.amount:''}`:'')).map(x=>x.trim()).filter(Boolean);
 }
 function applyPlan(ws,out){
-  const by={}; (out.days||[]).forEach(d=>{ const k=normDate(d.date,ws); if(k) by[k]=d; });
+  let days = out.days ?? out.plan ?? out.meals ?? [];
+  if(!Array.isArray(days)) days = Object.entries(days).map(([k,v])=>({date:k,...(typeof v==='object'?v:{title:String(v)})}));
+  const by={};
+  days.forEach(d=>{ const k=normDate(d.date ?? d.day ?? d.weekday ?? d['날짜'] ?? d['요일'], ws); if(k) by[k]=d; });
+  // 날짜를 못 알아보면, 식사하는 날에 순서대로 배치
+  if(!Object.keys(by).length && days.length){
+    const mealDays=[...Array(7)].map((_,i)=>addDays(ws,i)).filter(d=>getDay(d).count);
+    days.forEach((d,i)=>{ if(mealDays[i]) by[mealDays[i]]=d; });
+  }
   for(let i=0;i<7;i++){
     const d=addDays(ws,i), cnt=getDay(d).count, p=by[d];
-    S.days[d] = (cnt&&p) ? {count:cnt,title:p.title||'',items:p.items||[],portion:p.portion||'',minutes:parseInt(p.minutes)||''} : {count:cnt,title:'',items:[]};
+    const items = p ? toItems(p) : [];
+    const title = p ? String(p.title ?? p.name ?? p.menu_name ?? (items[0]||'')) : '';
+    S.days[d] = (cnt&&p) ? {count:cnt,title,items:items.length?items:(title?[title]:[]),portion:p.portion||'',minutes:parseInt(p.minutes)||''} : {count:cnt,title:'',items:[]};
   }
   for(let i=-2;i<7;i++) delete S.prep[addDays(ws,i)];
-  (out.prep||[]).forEach(p=>{ const k=normDate(p.date,ws); const txt=p.text||p.todo||''; if(k&&txt) (S.prep[k]=S.prep[k]||[]).push(txt); });
+  (out.prep||out.todo||[]).forEach(p=>{ const k=normDate(p.date ?? p.day,ws); const txt=p.text||p.todo||p.task||''; if(k&&txt) (S.prep[k]=S.prep[k]||[]).push(txt); });
   save();
+  // 그래도 메뉴가 하나도 안 들어갔으면 받은 내용을 보여줘서 원인 확인
+  const filled=[...Array(7)].some((_,i)=>(S.days[addDays(ws,i)].items||[]).length);
+  if(!filled) setTimeout(()=>showError('메뉴를 읽지 못했어요', 'AI가 보낸 내용:\n'+JSON.stringify(out).slice(0,1500)),300);
 }
 
 /* ================= 비용 ================= */
