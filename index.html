@@ -44,7 +44,8 @@
 /* 화면 고정: iOS 고무줄 스크롤(꿀렁임) 방지 */
 html,body{position:fixed;inset:0;width:100%;height:100%;overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
 body{background:var(--bg);color:var(--ink);font-family:Pretendard,-apple-system,"Apple SD Gothic Neo",sans-serif;font-size:var(--fs-md);line-height:var(--lh-ui);letter-spacing:-.01em;-webkit-user-select:none;user-select:none}
-input,textarea{-webkit-user-select:text;user-select:text}
+/* 아이폰 홈 화면 앱에서 입력칸이 눌리고 키보드가 뜨도록: 입력칸은 터치·선택을 기본값으로 */
+input,textarea,select{-webkit-user-select:initial!important;user-select:initial!important;touch-action:auto}
 button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 input,textarea,select{font:inherit;color:inherit;font-size:var(--fs-md)} /* 16px 미만이면 iOS가 확대함 */
 #app{position:absolute;inset:0;display:flex;flex-direction:column;max-width:520px;margin:0 auto;background:var(--bg)}
@@ -230,7 +231,7 @@ document.addEventListener('touchmove', e => {
   if(!sc || sc.scrollHeight <= sc.clientHeight) e.preventDefault();
 }, {passive:false});
 
-const APP_VER='11.14-10';
+const APP_VER='11.14-11';
 /* ================= storage ================= */
 const KEY = 'lunchPlanner.v2', SKEY = 'lunchPlanner.secrets';
 let SEC; try{ SEC = JSON.parse(localStorage.getItem(SKEY)) || {}; }catch(e){ SEC={}; }
