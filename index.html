@@ -231,7 +231,7 @@ document.addEventListener('touchmove', e => {
   if(!sc || sc.scrollHeight <= sc.clientHeight) e.preventDefault();
 }, {passive:false});
 
-const APP_VER='11.14-14';
+const APP_VER='11.17-1';
 /* ================= storage ================= */
 const KEY = 'lunchPlanner.v2', SKEY = 'lunchPlanner.secrets';
 let SEC; try{ SEC = JSON.parse(localStorage.getItem(SKEY)) || {}; }catch(e){ SEC={}; }
@@ -427,8 +427,8 @@ function renderShop(){
       <div class="thumbs">${draft.images.map(i=>`<img src="${i.url}" alt="">`).join('')}<span class="addt" aria-hidden="true">+</span></div>
       <div class="dsub"><b>${n}장 골랐어요</b> · 눌러서 더 고르기</div>`:`
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M21 17l-5-5-9 8"/></svg>
-      <div class="dt2">장바구니 캡처 고르기</div>
-      <div class="dsub">컬리 장바구니 화면을 여러 장 골라도 돼요</div>`}
+      <div class="dt2">장 본 사진 고르기</div>
+      <div class="dsub">온라인 장바구니·주문내역 캡처, 마트 영수증, 산 물건 사진 모두 돼요</div>`}
     </label>
     <input type="file" id="sFile" accept="image/*" multiple class="hide">
     <div class="row">
@@ -492,7 +492,7 @@ function runShop(){
 async function doShop(mode){
   const ws=draft.weekStart;
   try{
-    loading(true,'캡처 읽고 컬리에서 찾는 중… (1/2)');
+    loading(true,'사진 읽고 상품 정보 찾는 중… (1/2)');
     const items = await parseCart(draft.images);
     // 캡처를 다 읽은 뒤에 기존 것을 지움 (중간에 실패해도 기존 기록은 남게)
     if(mode==='replace'){ S.shops=S.shops.filter(s=>s.weekStart!==ws); clearWeekPlan(ws); }
@@ -502,7 +502,8 @@ async function doShop(mode){
     const out=await readJSON(await gemini([{text:planPrompt(ws,all)}],{json:true}));
     applyPlan(ws,out);
     draft={images:[],weekStart:null}; weekCursor=ws; go('week');
-    toast(`${weekInfo(ws).label} 식단 등록 완료 · 비용 ${won(weekCost(ws))}`);
+    const noPrice=items.filter(i=>!i.price).length;
+    toast(noPrice ? `식단 등록 완료 · 가격 없는 상품 ${noPrice}개는 비용 탭에서 넣어주세요` : `${weekInfo(ws).label} 식단 등록 완료 · 비용 ${won(weekCost(ws))}`);
   }catch(e){ showError('식단을 짜지 못했어요', e.message); }
   finally{ loading(false); }
 }
@@ -575,9 +576,13 @@ async function readJSON(raw){
   }
 }
 async function parseCart(images){
-  const prompt=`첨부한 이미지는 마켓컬리(kurly.com) 장바구니 또는 주문내역 캡처야. 여러 장이면 겹치는 상품은 한 번만.
-1) 모든 상품의 이름, 실제 결제 가격(할인가. 취소선 가격 말고), 수량을 읽어.
-2) 각 상품을 Google 검색(kurly.com 우선)으로 찾아 중량/용량, 보관타입(냉장/냉동/상온), 소비기한 안내를 확인해. 못 찾으면 비슷한 상품 기준으로 추정하고 "약"을 붙여.
+  const prompt=`첨부한 이미지는 이번에 장 본 식재료 사진이야. 아래 중 어떤 것이든 섞여 있을 수 있어:
+- 온라인 장보기 앱 화면(마켓컬리, 쿠팡 로켓프레시, SSG·이마트몰, 홈플러스, 오아시스, B마트, 네이버 장보기 등)의 장바구니·주문내역 캡처
+- 오프라인 마트·시장 영수증 (축약된 상품명은 원래 이름으로 풀어 써)
+- 산 물건을 찍은 사진 (포장에 적힌 상품명·중량을 읽어)
+여러 장에 같은 상품이 겹쳐 나오면(예: 영수증과 물건 사진) 한 번만 써.
+1) 모든 식재료 상품의 이름, 실제 결제 가격(할인 적용가. 취소선 가격 말고), 수량을 읽어. 봉투·배송비·쿠폰·포인트 같은 건 빼. 사진에 가격이 안 보이면 price는 0으로 둬(지어내지 마).
+2) 각 상품을 Google 검색으로 찾아 중량/용량, 보관타입(냉장/냉동/상온), 소비기한 안내를 확인해. 캡처에 앱 이름이 보이면 그 쇼핑몰 상품 페이지를 우선 찾고, 영수증이면 그 마트 상품을 찾아. 사진·포장에 중량이 적혀 있으면 그걸 우선해. 못 찾으면 비슷한 상품 기준으로 추정하고 "약"을 붙여.
 JSON만 출력:
 {"items":[{"name":"[브랜드] 상품명","price":정수,"qty":정수,"weight":"예: 300g×2 / 약 280g","storage":"냉장|냉동|상온","shelf":"짧게","note":"해동 필요 등 짧게"}]}`;
   const imgParts=images.map(i=>({inline_data:{mime_type:i.mime,data:i.b64}}));
