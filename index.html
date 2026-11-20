@@ -231,7 +231,7 @@ document.addEventListener('touchmove', e => {
   if(!sc || sc.scrollHeight <= sc.clientHeight) e.preventDefault();
 }, {passive:false});
 
-const APP_VER='11.21-1';
+const APP_VER='11.21-2';
 /* ================= storage ================= */
 const KEY = 'lunchPlanner.v2', SKEY = 'lunchPlanner.secrets';
 let SEC; try{ SEC = JSON.parse(localStorage.getItem(SKEY)) || {}; }catch(e){ SEC={}; }
@@ -533,22 +533,32 @@ const FALLBACK_MODELS=['gemini-3.5-flash-lite','gemini-3.8-flash','gemini-2.5-fl
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function gemini(parts,opts={}){
   const models=[...new Set([SEC.model||'gemini-3.5-flash-lite',...FALLBACK_MODELS])];
+  // JSON 모드 요청이 막힐 때는, 잘 되는 사진 읽기와 같은 방식(검색 켬)과 기본 방식으로 바꿔서도 시도
+  const variants = opts.json && !opts.search
+    ? [{json:true,label:'JSON'},{search:true,label:'검색방식'},{label:'기본'}]
+    : [{...opts,label:opts.search?'검색방식':'기본'}];
   const lt=$('#loadingText'), base=lt?lt.textContent:'';
-  let last;
-  for(let mi=0;mi<models.length;mi++){
-    for(let attempt=0;attempt<3;attempt++){
-      try{ const t=await geminiOnce(parts,opts,models[mi]); if(lt) lt.textContent=base; return t; }
-      catch(e){
-        last=e;
-        if(!e.retry) throw e;                  // 키 오류·요청 오류 등은 바로 알림
-        if(e.quota) break;                     // 한도 초과면 같은 모델 재시도 말고 다음 모델로
-        if(lt) lt.textContent=`서버가 붐벼서 다시 시도 중… (${mi*3+attempt+1})`;
-        await sleep([2000,5000,9000][attempt]);
+  const log=[]; let n=0;
+  for(const m of models){
+    for(let round=0; round<2; round++){
+      let quota=false;
+      for(const v of variants){
+        n++;
+        try{ const t=await geminiOnce(parts,v,m); if(lt) lt.textContent=base; return t; }
+        catch(e){
+          log.push(`${m} · ${v.label}: ${(e.status||'')} ${String(e.message).slice(0,60)}`);
+          if(!e.retry) throw new Error(e.message+'\n\n시도 기록:\n'+log.join('\n'));
+          if(e.quota){ quota=true; break; }
+          if(lt) lt.textContent=`서버가 붐벼서 다시 시도 중… (${n})`;
+          await sleep(1500);
+        }
       }
+      if(quota) break;
+      if(round===0){ if(lt) lt.textContent=`서버가 붐벼서 잠깐 기다리는 중… (${n})`; await sleep(6000); }
     }
   }
   if(lt) lt.textContent=base;
-  throw new Error('Gemini 서버가 지금 너무 붐벼요. 잠시 후 다시 시도해 주세요.\n(마지막 에러: '+(last?.message||'')+')');
+  throw new Error('Gemini 서버가 지금 요청을 안 받아요. 잠시 후 다시 시도해 주세요.\n\n시도 기록:\n'+log.join('\n'));
 }
 async function geminiOnce(parts,{search=false,json=false}={},model){
   const body={contents:[{role:'user',parts}],generationConfig:{temperature:0.4,maxOutputTokens:32768}};
@@ -561,7 +571,7 @@ async function geminiOnce(parts,{search=false,json=false}={},model){
   }catch(e){ const er=new Error('네트워크 오류: '+e.message); er.retry=true; throw er; }
   const j=await r.json().catch(()=>({}));
   if(!r.ok){
-    const msg=j?.error?.message||('HTTP '+r.status), er=new Error(msg);
+    const msg=j?.error?.message||('HTTP '+r.status), er=new Error(msg); er.status=r.status;
     er.retry = [429,500,502,503,504].includes(r.status) || /high demand|overload|unavailable/i.test(msg) || r.status===404;
     er.quota = r.status===429 || r.status===404 || /quota|exhaust/i.test(msg);
     throw er;
