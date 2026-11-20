@@ -231,7 +231,7 @@ document.addEventListener('touchmove', e => {
   if(!sc || sc.scrollHeight <= sc.clientHeight) e.preventDefault();
 }, {passive:false});
 
-const APP_VER='11.17-1';
+const APP_VER='11.21-1';
 /* ================= storage ================= */
 const KEY = 'lunchPlanner.v2', SKEY = 'lunchPlanner.secrets';
 let SEC; try{ SEC = JSON.parse(localStorage.getItem(SKEY)) || {}; }catch(e){ SEC={}; }
@@ -362,6 +362,7 @@ function renderWeek(){
   const ws=weekCursor, t=todayStr(), wi=weekInfo(ws);
   setHeader(wi.label, wi.range, ()=>{weekCursor=addDays(weekCursor,-7);render();}, ()=>{weekCursor=addDays(weekCursor,7);render();});
   const dates=[...Array(7)].map((_,i)=>addDays(ws,i));
+  const noPlan=!dates.some(d=>getDay(d).count && getDay(d).items?.length);
   $('#view').innerHTML = `<div class="days">${dates.map(d=>{
     const x=getDay(d), off=!x.count, filled=!off && x.items?.length;
     const dt = off ? '식사 없음' : (filled ? esc(x.title||'메뉴') : '메뉴 비어 있음');
@@ -371,10 +372,10 @@ function renderWeek(){
       <div class="dm"><div class="dt">${dt}</div>${dd}</div>
       ${x.count===1?'<span class="one">1인</span>':''}
     </div>`;}).join('')}</div>
-    ${S.shops.some(x=>x.weekStart===ws)?'<button class="btn ghost sm" id="wReplan">이 주 식단 다시 짜기</button>':''}`;
+    ${S.shops.some(x=>x.weekStart===ws)?(noPlan?'<button class="btn sm" id="wReplan">이 주 식단 짜기</button>':'<button class="btn ghost sm" id="wReplan">이 주 식단 다시 짜기</button>'):''}`;
   document.querySelectorAll('.day').forEach(el=>el.onclick=()=>openDay(el.dataset.d));
   const rp=$('#wReplan');
-  if(rp){ let armed=false; rp.onclick=()=>{
+  if(rp){ let armed=noPlan; rp.onclick=()=>{
     if(!armed){ armed=true; rp.textContent='직접 고친 메뉴도 바뀌어요. 한 번 더 누르면 다시 짜요'; return; }
     replanWeek(ws); }; }
 }
@@ -490,13 +491,14 @@ function runShop(){
   $('#mCancel').onclick=closeSheet;
 }
 async function doShop(mode){
+  let saved=false;
   const ws=draft.weekStart;
   try{
     loading(true,'사진 읽고 상품 정보 찾는 중… (1/2)');
     const items = await parseCart(draft.images);
     // 캡처를 다 읽은 뒤에 기존 것을 지움 (중간에 실패해도 기존 기록은 남게)
     if(mode==='replace'){ S.shops=S.shops.filter(s=>s.weekStart!==ws); clearWeekPlan(ws); }
-    S.shops.push({id:'s'+Date.now(),date:todayStr(),weekStart:ws,items}); save();
+    S.shops.push({id:'s'+Date.now(),date:todayStr(),weekStart:ws,items}); save(); saved=true;
     loading(true,'요일별 식단 짜는 중… (2/2)');
     const all=S.shops.filter(s=>s.weekStart===ws).flatMap(s=>s.items);
     const out=await readJSON(await gemini([{text:planPrompt(ws,all)}],{json:true}));
@@ -504,7 +506,10 @@ async function doShop(mode){
     draft={images:[],weekStart:null}; weekCursor=ws; go('week');
     const noPrice=items.filter(i=>!i.price).length;
     toast(noPrice ? `식단 등록 완료 · 가격 없는 상품 ${noPrice}개는 비용 탭에서 넣어주세요` : `${weekInfo(ws).label} 식단 등록 완료 · 비용 ${won(weekCost(ws))}`);
-  }catch(e){ showError('식단을 짜지 못했어요', e.message); }
+  }catch(e){
+    if(saved){ draft={images:[],weekStart:null}; weekCursor=ws; go('week'); }
+    showError('식단을 짜지 못했어요', (saved?'장보기는 저장됐어요. 주간 탭의 "이 주 식단 짜기"를 누르면 사진 없이 식단만 다시 짜요.\n\n':'')+e.message);
+  }
   finally{ loading(false); }
 }
 /* 한 주의 메뉴와 할 일 비우기 (요일별 인원은 유지) */
@@ -523,14 +528,44 @@ function showError(title, msg){
   $('#eCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText(msg); toast('복사했어요'); }catch(e){ toast('글자를 길게 눌러 복사해주세요'); } };
 }
 /* ================= Gemini ================= */
-async function gemini(parts,{search=false,json=false}={}){
+/* 서버 혼잡(503 등)이면 잠깐 쉬었다 다시, 그래도 안 되면 다른 모델로 */
+const FALLBACK_MODELS=['gemini-3.5-flash-lite','gemini-3.8-flash','gemini-2.5-flash'];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function gemini(parts,opts={}){
+  const models=[...new Set([SEC.model||'gemini-3.5-flash-lite',...FALLBACK_MODELS])];
+  const lt=$('#loadingText'), base=lt?lt.textContent:'';
+  let last;
+  for(let mi=0;mi<models.length;mi++){
+    for(let attempt=0;attempt<3;attempt++){
+      try{ const t=await geminiOnce(parts,opts,models[mi]); if(lt) lt.textContent=base; return t; }
+      catch(e){
+        last=e;
+        if(!e.retry) throw e;                  // 키 오류·요청 오류 등은 바로 알림
+        if(e.quota) break;                     // 한도 초과면 같은 모델 재시도 말고 다음 모델로
+        if(lt) lt.textContent=`서버가 붐벼서 다시 시도 중… (${mi*3+attempt+1})`;
+        await sleep([2000,5000,9000][attempt]);
+      }
+    }
+  }
+  if(lt) lt.textContent=base;
+  throw new Error('Gemini 서버가 지금 너무 붐벼요. 잠시 후 다시 시도해 주세요.\n(마지막 에러: '+(last?.message||'')+')');
+}
+async function geminiOnce(parts,{search=false,json=false}={},model){
   const body={contents:[{role:'user',parts}],generationConfig:{temperature:0.4,maxOutputTokens:32768}};
   if(search) body.tools=[{google_search:{}}];
   if(json&&!search) body.generationConfig.responseMimeType='application/json';
-  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(SEC.model||'gemini-3.5-flash-lite')}:generateContent`,{
-    method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':SEC.apiKey},body:JSON.stringify(body)});
+  let r;
+  try{
+    r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{
+      method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':SEC.apiKey},body:JSON.stringify(body)});
+  }catch(e){ const er=new Error('네트워크 오류: '+e.message); er.retry=true; throw er; }
   const j=await r.json().catch(()=>({}));
-  if(!r.ok) throw new Error(j?.error?.message||('HTTP '+r.status));
+  if(!r.ok){
+    const msg=j?.error?.message||('HTTP '+r.status), er=new Error(msg);
+    er.retry = [429,500,502,503,504].includes(r.status) || /high demand|overload|unavailable/i.test(msg) || r.status===404;
+    er.quota = r.status===429 || r.status===404 || /quota|exhaust/i.test(msg);
+    throw er;
+  }
   const text=(j.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join(''); // 생각 과정(thought) 텍스트는 제외
   if(!text) throw new Error('응답이 비어 있어요'+(j.candidates?.[0]?.finishReason?' ('+j.candidates[0].finishReason+')':''));
   window.__lastFinish=j.candidates?.[0]?.finishReason||'';
